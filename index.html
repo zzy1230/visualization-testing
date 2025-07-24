@@ -1,16 +1,30 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <title>水波纹交互（支持移动端）</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta charset="UTF-8" />
+  <title>水波纹交互（增强+录制）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <style>
     html, body {
       margin: 0;
+      padding: 0;
       height: 100%;
       background: #0a0f1c;
       overflow: hidden;
       touch-action: none;
+    }
+    #recordBtn {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 100;
+      background: #00bcd4;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      font-size: 14px;
+      border-radius: 5px;
+      cursor: pointer;
     }
     .hotspot-wrapper {
       position: absolute;
@@ -19,35 +33,33 @@
       text-align: center;
     }
     .hotspot {
-      position: absolute;
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background-color: #ffffff;
-      box-shadow: 0 0 8px #ffffff;
-      border: 2px solid #ffffff;
-      cursor: pointer;
-      z-index: 10;
+      background: #fff;
+      border: 2px solid #fff;
+      box-shadow: 0 0 8px #fff;
       transform: translate(-50%, -50%);
+      position: absolute;
+      z-index: 10;
     }
     .label {
       position: absolute;
       top: 20px;
       left: 50%;
       transform: translateX(-50%);
-      color: #ffffff;
+      color: #fff;
       font-size: 12px;
       white-space: nowrap;
     }
     .progress-ring {
-      position: absolute;
       width: 30px;
       height: 30px;
+      border: 2px solid #fff;
       border-radius: 50%;
-      border: 2px solid #ffffff;
-      box-sizing: border-box;
-      z-index: 9;
+      position: absolute;
       transform: translate(-50%, -50%);
+      opacity: 0.5;
     }
     .ripple {
       position: absolute;
@@ -58,256 +70,257 @@
       animation: rippleAnim 0.8s ease-out forwards;
       box-sizing: border-box;
     }
-    @keyframes rippleAnim {
-      to {
-        transform: scale(1);
-        opacity: 0;
-      }
-    }
     .circle {
       position: absolute;
       border-style: solid;
       border-color: #ffffff;
       border-radius: 50%;
-      pointer-events: auto;
       box-sizing: border-box;
+      pointer-events: auto;
       cursor: pointer;
     }
     svg {
       position: absolute;
       top: 0;
       left: 0;
+      z-index: 0;
       width: 100%;
       height: 100%;
       pointer-events: none;
-      z-index: 0;
+    }
+    @keyframes rippleAnim {
+      to {
+        transform: scale(1);
+        opacity: 0;
+      }
     }
   </style>
 </head>
 <body>
-<svg id="lines"></svg>
-<script>
-(() => {
-  const centerX = window.innerWidth / 2;
-  const centerY = window.innerHeight / 2;
-  const svg = document.getElementById('lines');
-  const allCircles = [];
-  const labels = ["起点", "分发", "分析", "校验", "同步", "验证", "出口", "入口", "分流", "缓存",
-                  "确认", "检查", "解码", "转发", "等待", "中继", "核心", "接口", "终端", "回环",
-                  "感应", "识别", "授权", "提交", "拦截", "记录", "转码", "备份", "统计", "完成"];
-  const endpointRadius = 6;
-  const maxHoldDuration = 3000;
+  <button id="recordBtn">开始录制</button>
+  <svg id="lines"></svg>
+  <script>
+    const svg = document.getElementById("lines");
+    const recordBtn = document.getElementById("recordBtn");
+    const labels = Array.from({ length: 30 }, (_, i) => `点${i + 1}`);
+    const centerX = window.innerWidth / 2;
+    const centerY = window.innerHeight / 2;
+    const allCircles = [];
+    const endpointRadius = 6;
+    let dragStart = null, dragStartTime = null, tempLine = null;
 
-  let dragStart = null;
-  let dragStartTime = null;
-  let tempLine = null;
+    let recorder, recordedChunks = [];
 
-  function getTouchOrMousePos(e) {
-    return e.touches ? e.touches[0] : e;
-  }
-  function createArcPoints(count, radius, startDeg, endDeg) {
-    const points = [];
-    const startRad = (startDeg * Math.PI) / 180;
-    const endRad = (endDeg * Math.PI) / 180;
-    for (let i = 0; i < count; i++) {
-      const t = i / (count - 1);
-      const angle = startRad + (endRad - startRad) * t;
-      const x = centerX + radius * Math.cos(angle);
-      const y = centerY + radius * Math.sin(angle);
-      points.push({ x, y });
-    }
-    return points;
-  }
-
-  function setupHotspot(x, y, labelText) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'hotspot-wrapper';
-    wrapper.style.left = `${x}px`;
-    wrapper.style.top = `${y}px`;
-
-    const hotspot = document.createElement('div');
-    hotspot.className = 'hotspot';
-
-    const ring = document.createElement('div');
-    ring.className = 'progress-ring';
-
-    const label = document.createElement('div');
-    label.className = 'label';
-    label.innerText = labelText;
-
-    wrapper.appendChild(ring);
-    wrapper.appendChild(hotspot);
-    wrapper.appendChild(label);
-    document.body.appendChild(wrapper);
-
-    let holdStartTime = null;
-    let holdInterval = null;
-
-    function startHold(e) {
-      e.preventDefault();
-      holdStartTime = Date.now();
-      ring.style.transform = 'translate(-50%, -50%) scale(1)';
-      holdInterval = setInterval(() => {
-        const elapsed = Date.now() - holdStartTime;
-        const ratio = Math.min(elapsed / maxHoldDuration, 1);
-        ring.style.transform = `translate(-50%, -50%) scale(${1 + ratio * 1.5})`;
-        ring.style.opacity = 0.5 + ratio * 0.5;
-        if (ratio >= 1) clearInterval(holdInterval);
-      }, 16);
-    }
-
-    function endHold(e) {
-      if (!holdStartTime) return;
-      const elapsed = Date.now() - holdStartTime;
-      clearInterval(holdInterval);
-      wrapper.remove();
-      holdStartTime = null;
-
-      const clamped = Math.min(elapsed, maxHoldDuration);
-      const sizeFactor = clamped / maxHoldDuration;
-      const distance = 80 + sizeFactor * 220;
-      triggerRipple(x, y, distance);
-    }
-
-    hotspot.addEventListener('mousedown', startHold);
-    hotspot.addEventListener('touchstart', startHold);
-    document.addEventListener('mouseup', endHold);
-    document.addEventListener('touchend', endHold);
-
-    hotspot.addEventListener('mousedown', () => {
-      dragStart = { x, y };
-      dragStartTime = Date.now();
-      createTempLine(x, y);
-    });
-    hotspot.addEventListener('touchstart', () => {
-      dragStart = { x, y };
-      dragStartTime = Date.now();
-      createTempLine(x, y);
-    });
-  }
-
-  function triggerRipple(startX, startY, distance) {
-    const radii = [];
-    let prev = 0;
-    const circleCount = 3 + Math.floor(distance / 100);
-    for (let i = 0; i < circleCount; i++) {
-      const factor = (circleCount - i) / circleCount;
-      const gap = 20 + Math.random() * 10;
-      const radius = prev + gap * factor;
-      radii.push(radius);
-      prev = radius;
-    }
-
-    radii.forEach((radius, i) => {
-      const ripple = document.createElement('div');
-      ripple.className = 'ripple';
-      ripple.style.width = ripple.style.height = `${radius * 2}px`;
-      ripple.style.left = `${startX - radius}px`;
-      ripple.style.top = `${startY - radius}px`;
-      ripple.style.animationDelay = `${i * 0.05}s`;
-      document.body.appendChild(ripple);
-
-      setTimeout(() => {
-        ripple.remove();
-        const circle = document.createElement('div');
-        circle.className = 'circle';
-        const borderWidth = 2 + Math.random() * 5;
-        circle.style.borderWidth = `${borderWidth}px`;
-        circle.style.width = circle.style.height = `${radius * 2}px`;
-        circle.style.left = `${startX - radius}px`;
-        circle.style.top = `${startY - radius}px`;
-        document.body.appendChild(circle);
-        addConnectableBehavior(circle, startX, startY);
-      }, 1000 + i * 50);
-    });
-  }
-
-  function addConnectableBehavior(circle, cx, cy) {
-    allCircles.push({ dom: circle, x: cx, y: cy });
-  }
-
-  function createTempLine(x, y) {
-    tempLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    tempLine.setAttribute("x1", x);
-    tempLine.setAttribute("y1", y);
-    tempLine.setAttribute("x2", x);
-    tempLine.setAttribute("y2", y);
-    tempLine.setAttribute("stroke", "#ffffff");
-    tempLine.setAttribute("stroke-width", "2");
-    svg.appendChild(tempLine);
-  }
-  function handleMove(e) {
-    if (dragStart && tempLine) {
-      const pos = getTouchOrMousePos(e);
-      tempLine.setAttribute('x2', pos.clientX);
-      tempLine.setAttribute('y2', pos.clientY);
-    }
-  }
-
-  function handleEnd(e) {
-    if (!dragStart || !dragStartTime) return;
-    const duration = Date.now() - dragStartTime;
-    const lineWidth = 2 + Math.min(duration, 1500) / 1500 * 14;
-
-    const pos = getTouchOrMousePos(e);
-    const target = allCircles.find(c => {
-      const dx = pos.clientX - c.x;
-      const dy = pos.clientY - c.y;
-      return Math.sqrt(dx * dx + dy * dy) < 20 &&
-             (c.x !== dragStart.x || c.y !== dragStart.y);
+    recordBtn.addEventListener("click", () => {
+      if (recorder && recorder.state === "recording") {
+        recorder.stop();
+        recordBtn.innerText = "开始录制";
+      } else {
+        recordedChunks = [];
+        const stream = document.documentElement.captureStream(60);
+        recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
+        recorder.ondataavailable = e => {
+          if (e.data.size > 0) recordedChunks.push(e.data);
+        };
+        recorder.onstop = () => {
+          const blob = new Blob(recordedChunks, { type: "video/webm" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "interaction_recording.webm";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        };
+        recorder.start();
+        recordBtn.innerText = "停止录制";
+      }
     });
 
-    if (target) {
-      const dx = target.x - dragStart.x;
-      const dy = target.y - dragStart.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const unitX = dx / dist;
-      const unitY = dy / dist;
+    function createArcPoints(count, radius, startDeg, endDeg) {
+      const pts = [], startRad = startDeg * Math.PI / 180, endRad = endDeg * Math.PI / 180;
+      for (let i = 0; i < count; i++) {
+        const angle = startRad + (endRad - startRad) * (i / (count - 1));
+        pts.push({ x: centerX + radius * Math.cos(angle), y: centerY + radius * Math.sin(angle) });
+      }
+      return pts;
+    }
 
-      const startX = dragStart.x + unitX * endpointRadius;
-      const startY = dragStart.y + unitY * endpointRadius;
-      const endX = target.x - unitX * endpointRadius;
-      const endY = target.y - unitY * endpointRadius;
+    function setupHotspot(x, y, labelText) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "hotspot-wrapper";
+      wrapper.style.left = `${x}px`;
+      wrapper.style.top = `${y}px`;
 
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", startX);
-      line.setAttribute("y1", startY);
-      line.setAttribute("x2", endX);
-      line.setAttribute("y2", endY);
-      line.setAttribute("stroke", "#ffffff");
-      line.setAttribute("stroke-width", lineWidth);
-      svg.appendChild(line);
+      const hotspot = document.createElement("div");
+      hotspot.className = "hotspot";
+      const ring = document.createElement("div");
+      ring.className = "progress-ring";
+      const label = document.createElement("div");
+      label.className = "label";
+      label.innerText = labelText;
 
-      [dragStart, target].forEach(pos => {
-        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-        circle.setAttribute("cx", pos.x);
-        circle.setAttribute("cy", pos.y);
-        circle.setAttribute("r", endpointRadius);
-        circle.setAttribute("fill", "none");
-        circle.setAttribute("stroke", "#ffffff");
-        circle.setAttribute("stroke-width", 3);
-        svg.appendChild(circle);
+      wrapper.appendChild(ring);
+      wrapper.appendChild(hotspot);
+      wrapper.appendChild(label);
+      document.body.appendChild(wrapper);
+
+      let holdStart = null;
+      let interval = null;
+
+      function startHold(e) {
+        e.preventDefault();
+        holdStart = Date.now();
+        interval = setInterval(() => {
+          const elapsed = Date.now() - holdStart;
+          const ratio = Math.min(elapsed / 3000, 1);
+          ring.style.transform = `translate(-50%, -50%) scale(${1 + ratio * 1.5})`;
+          ring.style.opacity = 0.5 + ratio * 0.5;
+          if (ratio >= 1) clearInterval(interval);
+        }, 16);
+      }
+
+      function endHold(e) {
+        clearInterval(interval);
+        if (!holdStart) return;
+        wrapper.remove();
+        const elapsed = Date.now() - holdStart;
+        const distance = 80 + (Math.min(elapsed, 3000) / 3000) * 220;
+        triggerRipple(x, y, distance);
+        holdStart = null;
+      }
+
+      hotspot.addEventListener("mousedown", e => {
+        dragStart = { x, y };
+        dragStartTime = Date.now();
+        createTempLine(x, y);
+        startHold(e);
+      });
+      hotspot.addEventListener("touchstart", e => {
+        dragStart = { x, y };
+        dragStartTime = Date.now();
+        createTempLine(x, y);
+        startHold(e);
+      }, { passive: false });
+
+      document.addEventListener("mouseup", endHold);
+      document.addEventListener("touchend", endHold);
+    }
+
+    function triggerRipple(cx, cy, distance) {
+      let prev = 0;
+      const count = 3 + Math.floor(distance / 100);
+      for (let i = 0; i < count; i++) {
+        const factor = (count - i) / count;
+        const gap = 20 + Math.random() * 10;
+        const radius = prev + gap * factor;
+        prev = radius;
+
+        const ripple = document.createElement("div");
+        ripple.className = "ripple";
+        ripple.style.width = ripple.style.height = `${radius * 2}px`;
+        ripple.style.left = `${cx - radius}px`;
+        ripple.style.top = `${cy - radius}px`;
+        ripple.style.animationDelay = `${i * 0.05}s`;
+        document.body.appendChild(ripple);
+
+        setTimeout(() => {
+          ripple.remove();
+          const circle = document.createElement("div");
+          circle.className = "circle";
+          const border = 2 + Math.random() * 5;
+          circle.style.borderWidth = `${border}px`;
+          circle.style.width = circle.style.height = `${radius * 2}px`;
+          circle.style.left = `${cx - radius}px`;
+          circle.style.top = `${cy - radius}px`;
+          document.body.appendChild(circle);
+          addConnectable(circle, cx, cy);
+        }, 1000 + i * 50);
+      }
+    }
+
+    function addConnectable(dom, x, y) {
+      allCircles.push({ dom, x, y });
+      dom.addEventListener("mousedown", e => {
+        e.stopPropagation();
+        dragStart = { x, y };
+        dragStartTime = Date.now();
+        createTempLine(x, y);
       });
     }
 
-    if (tempLine) tempLine.remove();
-    dragStart = null;
-    dragStartTime = null;
-  }
+    function createTempLine(x, y) {
+      tempLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      tempLine.setAttribute("x1", x);
+      tempLine.setAttribute("y1", y);
+      tempLine.setAttribute("x2", x);
+      tempLine.setAttribute("y2", y);
+      tempLine.setAttribute("stroke", "#fff");
+      tempLine.setAttribute("stroke-width", "2");
+      svg.appendChild(tempLine);
+    }
 
-  document.addEventListener('mousemove', handleMove);
-  document.addEventListener('mouseup', handleEnd);
-  document.addEventListener('touchmove', handleMove, { passive: false });
-  document.addEventListener('touchend', handleEnd);
+    function updateTempLine(e) {
+      if (!tempLine || !dragStart) return;
+      const p = e.touches ? e.touches[0] : e;
+      tempLine.setAttribute("x2", p.clientX);
+      tempLine.setAttribute("y2", p.clientY);
+    }
 
-  // 创建两个半圆点（内圈20，外圈10）
-  createArcPoints(20, 200, 0, 342).forEach(({ x, y }, i) => {
-    setupHotspot(x, y, labels[i] || `点${i + 1}`);
-  });
-  createArcPoints(10, 400, 0, 324).forEach(({ x, y }, i) => {
-    setupHotspot(x, y, labels[i + 20] || `点${i + 21}`);
-  });
-})();
-</script>
+    function finalizeLine(e) {
+      if (!dragStart || !dragStartTime) return;
+      const p = e.changedTouches ? e.changedTouches[0] : e;
+      const duration = Date.now() - dragStartTime;
+      const lineWidth = 2 + Math.min(duration, 1500) / 1500 * 14;
+      const target = allCircles.find(c => {
+        const dx = p.clientX - c.x;
+        const dy = p.clientY - c.y;
+        return Math.sqrt(dx * dx + dy * dy) < 20 &&
+               (c.x !== dragStart.x || c.y !== dragStart.y);
+      });
+      if (target) {
+        const dx = target.x - dragStart.x;
+        const dy = target.y - dragStart.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const ux = dx / dist, uy = dy / dist;
+        const x1 = dragStart.x + ux * endpointRadius;
+        const y1 = dragStart.y + uy * endpointRadius;
+        const x2 = target.x - ux * endpointRadius;
+        const y2 = target.y - uy * endpointRadius;
+
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", x1);
+        line.setAttribute("y1", y1);
+        line.setAttribute("x2", x2);
+        line.setAttribute("y2", y2);
+        line.setAttribute("stroke", "#fff");
+        line.setAttribute("stroke-width", lineWidth);
+        svg.appendChild(line);
+
+        [dragStart, target].forEach(pos => {
+          const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+          circle.setAttribute("cx", pos.x);
+          circle.setAttribute("cy", pos.y);
+          circle.setAttribute("r", endpointRadius);
+          circle.setAttribute("fill", "none");
+          circle.setAttribute("stroke", "#fff");
+          circle.setAttribute("stroke-width", "3");
+          svg.appendChild(circle);
+        });
+      }
+      if (tempLine) tempLine.remove();
+      dragStart = null;
+      dragStartTime = null;
+    }
+
+    document.addEventListener("mousemove", updateTempLine);
+    document.addEventListener("mouseup", finalizeLine);
+    document.addEventListener("touchmove", updateTempLine, { passive: false });
+    document.addEventListener("touchend", finalizeLine);
+
+    createArcPoints(20, 200, 0, 342).forEach(({x, y}, i) => setupHotspot(x, y, labels[i]));
+    createArcPoints(10, 400, 0, 324).forEach(({x, y}, i) => setupHotspot(x, y, labels[i + 20]));
+  </script>
 </body>
 </html>
