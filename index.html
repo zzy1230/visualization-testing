@@ -1,47 +1,25 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8" />
-  <title>水波纹交互（可录制）</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <title>协作交互 · 水波纹</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: #0a0f1c;
-      overflow: hidden;
-      height: 100%;
-      touch-action: none;
-    }
-    #startRecordBtn {
-      position: absolute;
-      top: 20px;
-      right: 20px;
-      padding: 10px 16px;
-      background: #00bcd4;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      font-size: 14px;
-      z-index: 9999;
-      cursor: pointer;
-    }
+    html, body { margin: 0; height: 100%; background: #0a0f1c; overflow: hidden; touch-action: none; }
     .hotspot-wrapper {
       position: absolute;
-      width: 0;
-      height: 0;
+      width: 0; height: 0;
       text-align: center;
     }
     .hotspot {
       position: absolute;
-      width: 8px;
-      height: 8px;
+      width: 8px; height: 8px;
       border-radius: 50%;
       background: #fff;
       box-shadow: 0 0 8px #fff;
       border: 2px solid #fff;
-      transform: translate(-50%, -50%);
       z-index: 10;
+      transform: translate(-50%, -50%);
     }
     .label {
       position: absolute;
@@ -59,8 +37,8 @@
       border-radius: 50%;
       border: 2px solid #fff;
       box-sizing: border-box;
-      transform: translate(-50%, -50%);
       z-index: 9;
+      transform: translate(-50%, -50%);
     }
     .ripple {
       position: absolute;
@@ -88,20 +66,16 @@
     }
     svg {
       position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
       pointer-events: none;
       z-index: 0;
     }
   </style>
 </head>
 <body>
-  <svg id="lines"></svg>
-  <button id="startRecordBtn">开始录制</button>
-
-  <script>
+<svg id="lines"></svg>
+<script>
 (() => {
   const centerX = window.innerWidth / 2;
   const centerY = window.innerHeight / 2;
@@ -110,6 +84,7 @@
   const labels = Array.from({ length: 30 }, (_, i) => "点" + (i + 1));
   const endpointRadius = 6;
   const maxHoldDuration = 3000;
+
   let dragStart = null, dragStartTime = null, tempLine = null;
   let holdStartTime = null, holdInterval = null, holdPosition = null, holdWrapper = null;
 
@@ -125,8 +100,10 @@
 
     const hotspot = document.createElement('div');
     hotspot.className = 'hotspot';
+
     const ring = document.createElement('div');
     ring.className = 'progress-ring';
+
     const label = document.createElement('div');
     label.className = 'label';
     label.innerText = labelText;
@@ -141,6 +118,7 @@
       holdStartTime = Date.now();
       holdPosition = { x, y };
       holdWrapper = wrapper;
+
       holdInterval = setInterval(() => {
         const elapsed = Date.now() - holdStartTime;
         const ratio = Math.min(elapsed / maxHoldDuration, 1);
@@ -156,9 +134,11 @@
       clearInterval(holdInterval);
       holdWrapper && holdWrapper.remove();
       holdStartTime = null;
+
       const clamped = Math.min(elapsed, maxHoldDuration);
       const sizeFactor = clamped / maxHoldDuration;
       const distance = 80 + sizeFactor * 220;
+
       triggerRipple(holdPosition.x, holdPosition.y, distance);
     }
 
@@ -179,6 +159,7 @@
     const radii = [];
     let prev = 0;
     const circleCount = 3 + Math.floor(distance / 100);
+
     for (let i = 0; i < circleCount; i++) {
       const factor = (circleCount - i) / circleCount;
       const gap = 20 + Math.random() * 10;
@@ -213,18 +194,16 @@
 
   function addConnectableBehavior(circle, cx, cy) {
     allCircles.push({ dom: circle, x: cx, y: cy });
-    circle.addEventListener('mousedown', (e) => {
+
+    function startDrag(e) {
       e.stopPropagation();
       dragStart = { x: cx, y: cy };
       dragStartTime = Date.now();
       createTempLine(cx, cy);
-    });
-    circle.addEventListener('touchstart', (e) => {
-      e.stopPropagation();
-      dragStart = { x: cx, y: cy };
-      dragStartTime = Date.now();
-      createTempLine(cx, cy);
-    });
+    }
+
+    circle.addEventListener('mousedown', startDrag);
+    circle.addEventListener('touchstart', startDrag);
   }
 
   function createTempLine(x, y) {
@@ -251,6 +230,7 @@
     const duration = Date.now() - dragStartTime;
     const lineWidth = 2 + Math.min(duration, 1500) / 1500 * 14;
     const pos = getPos(e);
+
     const target = allCircles.find(c => {
       const dx = pos.clientX - c.x;
       const dy = pos.clientY - c.y;
@@ -299,44 +279,23 @@
   document.addEventListener('touchend', handleEnd, { passive: false });
 
   function createArcPoints(count, radius, startDeg, endDeg) {
-    const pts = [], startRad = startDeg * Math.PI / 180, endRad = endDeg * Math.PI / 180;
+    const pts = [];
+    const startRad = startDeg * Math.PI / 180;
+    const endRad = endDeg * Math.PI / 180;
+
     for (let i = 0; i < count; i++) {
       const angle = startRad + (endRad - startRad) * (i / (count - 1));
-      pts.push({ x: centerX + radius * Math.cos(angle), y: centerY + radius * Math.sin(angle) });
+      pts.push({
+        x: centerX + radius * Math.cos(angle),
+        y: centerY + radius * Math.sin(angle)
+      });
     }
     return pts;
   }
 
   createArcPoints(20, 200, 0, 342).forEach(({x, y}, i) => setupHotspot(x, y, labels[i]));
   createArcPoints(10, 400, 0, 324).forEach(({x, y}, i) => setupHotspot(x, y, labels[i + 20]));
-
-  // 🎥 录制功能绑定
-  document.getElementById("startRecordBtn").addEventListener("click", () => {
-    let stream;
-    if (document.body.captureStream) {
-      stream = document.body.captureStream(60);
-    } else {
-      alert("⚠️ 当前浏览器不支持录制功能。请使用 Chrome 或 Edge 最新版");
-      return;
-    }
-
-    const recorder = new MediaRecorder(stream);
-    const chunks = [];
-    recorder.ondataavailable = e => chunks.push(e.data);
-    recorder.onstop = () => {
-      const blob = new Blob(chunks, { type: "video/webm" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "interaction_recording.webm";
-      a.click();
-    };
-
-    recorder.start();
-    console.log("✅ 开始录制");
-    setTimeout(() => recorder.stop(), 15000);
-  });
 })();
-  </script>
+</script>
 </body>
 </html>
