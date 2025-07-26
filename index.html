@@ -3,7 +3,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>水波纹互动（移动 + PC 双端支持）</title>
+  <title>水波纹互动 + 音频播放</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <style>
     html, body {
@@ -12,6 +12,12 @@
       background: #0a0f1c;
       overflow: hidden;
       touch-action: none;
+    }
+    * {
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
     }
     .hotspot-wrapper {
       position: absolute;
@@ -49,9 +55,6 @@
       color: #ffffff;
       font-size: 12px;
       white-space: nowrap;
-      user-select: none;
-      -webkit-user-select: none;
-      -ms-user-select: none;
     }
     .ripple {
       position: absolute;
@@ -86,42 +89,37 @@
       pointer-events: none;
       z-index: 0;
     }
-
-* {
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  user-select: none;
-}
-
-</style>
+  </style>
 </head>
 <body>
 <svg id="lines"></svg>
 <script>
-
-document.addEventListener("touchstart", function(e) {
-  if (e.target.closest('.hotspot')) {
-    e.preventDefault();
-  }
-}, { passive: false });
-
-
 const centerX = window.innerWidth / 2;
 const centerY = window.innerHeight / 2;
 const svg = document.getElementById('lines');
 const allCircles = [];
 const maxHoldDuration = 3000;
 const endpointRadius = 6;
-const labels = [...Array(30)].map((_, i) =>
-  ["起点", "分发", "分析", "校验", "同步", "验证", "出口", "入口", "分流", "缓存",
-   "确认", "检查", "解码", "转发", "等待", "中继", "核心", "接口", "终端", "回环",
-   "感应", "识别", "授权", "提交", "拦截", "记录", "转码", "备份", "统计", "完成"][i] || ("点" + (i + 1))
-);
+const labels = [...Array(30)].map((_, i) => ["起点", "分发", "分析", "校验", "同步", "验证", "出口", "入口", "分流", "缓存","确认", "检查", "解码", "转发", "等待", "中继", "核心", "接口", "终端", "回环","感应", "识别", "授权", "提交", "拦截", "记录", "转码", "备份", "统计", "完成"][i] || ("点" + (i + 1)));
 
 let dragStart = null;
 let dragStartTime = null;
 let tempLine = null;
+let latestRipple = null;
+const audioMap = new Map();
+
+function registerAudio(x, y) {
+  const key = `${x},${y}`;
+  if (!audioMap.has(key)) {
+    const audio = new Audio("https://interactive-examples.mdn.mozilla.net/media/cc0-audio/t-rex-roar.mp3");
+    audioMap.set(key, audio);
+  }
+}
+function playAudioForPoint(x, y) {
+  const key = `${x},${y}`;
+  const audio = audioMap.get(key);
+  if (audio) audio.play();
+}
 
 function createArcPoints(count, radius, startDeg, endDeg) {
   const points = [];
@@ -195,6 +193,8 @@ function setupHotspot(x, y, labelText) {
 }
 
 function triggerRipple(x, y, distance) {
+  latestRipple = { x, y };
+  registerAudio(x, y);
   const count = 3 + Math.floor(distance / 100);
   let prev = 0;
   const radii = [];
@@ -225,108 +225,20 @@ function triggerRipple(x, y, distance) {
       circle.style.left = x - radius + 'px';
       circle.style.top = y - radius + 'px';
       document.body.appendChild(circle);
-      addConnectableBehavior(circle, x, y);
     }, 1000 + i * 50);
   });
 }
 
-function addConnectableBehavior(dom, x, y) {
-  allCircles.push({ dom, x, y });
-  dom.addEventListener('mousedown', (e) => {
-    e.stopPropagation();
-    dragStart = { x, y };
-    dragStartTime = Date.now();
-    createTempLine(x, y);
-  });
-  dom.addEventListener('touchstart', (e) => {
-    e.stopPropagation();
-    dragStart = { x, y };
-    dragStartTime = Date.now();
-    createTempLine(x, y);
-  });
-}
-
-function createTempLine(x, y) {
-  tempLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
-  tempLine.setAttribute("x1", x);
-  tempLine.setAttribute("y1", y);
-  tempLine.setAttribute("x2", x);
-  tempLine.setAttribute("y2", y);
-  tempLine.setAttribute("stroke", "#ffffff");
-  tempLine.setAttribute("stroke-width", 2);
-  svg.appendChild(tempLine);
-}
-
-function endLineDraw(x, y, duration) {
-  const width = 2 + Math.min(duration, 2000) / 2000 * 8;
-  const target = allCircles.find(c => {
-    const dx = x - c.x;
-    const dy = y - c.y;
-    return Math.hypot(dx, dy) < 25 && (c.x !== dragStart.x || c.y !== dragStart.y);
-  });
-
-  if (target) {
-    const dx = target.x - dragStart.x;
-    const dy = target.y - dragStart.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const unitX = dx / dist;
-    const unitY = dy / dist;
-    const sx = dragStart.x + unitX * endpointRadius;
-    const sy = dragStart.y + unitY * endpointRadius;
-    const ex = target.x - unitX * endpointRadius;
-    const ey = target.y - unitY * endpointRadius;
-
-    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    line.setAttribute("x1", sx);
-    line.setAttribute("y1", sy);
-    line.setAttribute("x2", ex);
-    line.setAttribute("y2", ey);
-    line.setAttribute("stroke", "#ffffff");
-    line.setAttribute("stroke-width", width);
-    svg.appendChild(line);
-
-    [dragStart, target].forEach(pos => {
-      const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      c.setAttribute("cx", pos.x);
-      c.setAttribute("cy", pos.y);
-      c.setAttribute("r", endpointRadius);
-      c.setAttribute("fill", "none");
-      c.setAttribute("stroke", "#ffffff");
-      c.setAttribute("stroke-width", 2);
-      svg.appendChild(c);
-    });
-  }
-
-  if (tempLine) tempLine.remove();
-  tempLine = null;
-  dragStart = null;
-  dragStartTime = null;
-}
-
-document.addEventListener('touchmove', (e) => {
-  if (dragStart && tempLine) {
-    const touch = e.touches[0];
-    tempLine.setAttribute('x2', touch.clientX);
-    tempLine.setAttribute('y2', touch.clientY);
+document.addEventListener("click", function(e) {
+  if (!latestRipple) return;
+  const { x, y } = latestRipple;
+  const dx = e.clientX - x;
+  const dy = e.clientY - y;
+  if (Math.sqrt(dx*dx + dy*dy) < 20) {
+    playAudioForPoint(x, y);
   }
 });
-document.addEventListener('touchend', (e) => {
-  if (!dragStart || !dragStartTime) return;
-  const touch = e.changedTouches[0];
-  endLineDraw(touch.clientX, touch.clientY, Date.now() - dragStartTime);
-});
-document.addEventListener('mousemove', (e) => {
-  if (dragStart && tempLine) {
-    tempLine.setAttribute('x2', e.clientX);
-    tempLine.setAttribute('y2', e.clientY);
-  }
-});
-document.addEventListener('mouseup', (e) => {
-  if (!dragStart || !dragStartTime) return;
-  endLineDraw(e.clientX, e.clientY, Date.now() - dragStartTime);
-});
 
-// 初始化圆圈和标签
 createArcPoints(20, 200, 0, 342).forEach(({x, y}, i) => setupHotspot(x, y, labels[i] || '点' + i));
 createArcPoints(10, 400, 0, 324).forEach(({x, y}, i) => setupHotspot(x, y, labels[i+20] || '点' + (i+20)));
 </script>
