@@ -86,11 +86,27 @@
       pointer-events: none;
       z-index: 0;
     }
-  </style>
+
+* {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+</style>
 </head>
 <body>
 <svg id="lines"></svg>
 <script>
+
+document.addEventListener("touchstart", function(e) {
+  if (e.target.closest('.hotspot')) {
+    e.preventDefault();
+  }
+}, { passive: false });
+
+
 const centerX = window.innerWidth / 2;
 const centerY = window.innerHeight / 2;
 const svg = document.getElementById('lines');
