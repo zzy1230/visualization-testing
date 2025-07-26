@@ -3,7 +3,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>水波纹互动（移动端适配）</title>
+  <title>水波纹互动（移动 + PC 双端支持）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <style>
     html, body {
@@ -49,6 +49,9 @@
       color: #ffffff;
       font-size: 12px;
       white-space: nowrap;
+      user-select: none;
+      -webkit-user-select: none;
+      -ms-user-select: none;
     }
     .ripple {
       position: absolute;
@@ -88,16 +91,17 @@
 <body>
 <svg id="lines"></svg>
 <script>
-
 const centerX = window.innerWidth / 2;
 const centerY = window.innerHeight / 2;
 const svg = document.getElementById('lines');
 const allCircles = [];
 const maxHoldDuration = 3000;
 const endpointRadius = 6;
-const labels = ["起点", "分发", "分析", "校验", "同步", "验证", "出口", "入口", "分流", "缓存",
-                "确认", "检查", "解码", "转发", "等待", "中继", "核心", "接口", "终端", "回环",
-                "感应", "识别", "授权", "提交", "拦截", "记录", "转码", "备份", "统计", "完成"];
+const labels = [...Array(30)].map((_, i) =>
+  ["起点", "分发", "分析", "校验", "同步", "验证", "出口", "入口", "分流", "缓存",
+   "确认", "检查", "解码", "转发", "等待", "中继", "核心", "接口", "终端", "回环",
+   "感应", "识别", "授权", "提交", "拦截", "记录", "转码", "备份", "统计", "完成"][i] || ("点" + (i + 1))
+);
 
 let dragStart = null;
 let dragStartTime = null;
@@ -140,7 +144,7 @@ function setupHotspot(x, y, labelText) {
   let holdStartTime = null;
   let holdTimer = null;
 
-  function onTouchStart(e) {
+  function startHold(e) {
     e.preventDefault();
     holdStartTime = Date.now();
     ring.style.transform = 'translate(-50%, -50%) scale(1)';
@@ -154,7 +158,7 @@ function setupHotspot(x, y, labelText) {
     createTempLine(x, y);
   }
 
-  function onTouchEnd(e) {
+  function endHold() {
     clearInterval(holdTimer);
     if (!holdStartTime) return;
     const duration = Date.now() - holdStartTime;
@@ -168,8 +172,10 @@ function setupHotspot(x, y, labelText) {
     dragStartTime = null;
   }
 
-  hotspot.addEventListener('touchstart', onTouchStart, { passive: false });
-  hotspot.addEventListener('touchend', onTouchEnd);
+  hotspot.addEventListener('touchstart', startHold, { passive: false });
+  hotspot.addEventListener('touchend', endHold);
+  hotspot.addEventListener('mousedown', startHold);
+  document.addEventListener('mouseup', endHold);
 }
 
 function triggerRipple(x, y, distance) {
@@ -210,6 +216,12 @@ function triggerRipple(x, y, distance) {
 
 function addConnectableBehavior(dom, x, y) {
   allCircles.push({ dom, x, y });
+  dom.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+    dragStart = { x, y };
+    dragStartTime = Date.now();
+    createTempLine(x, y);
+  });
   dom.addEventListener('touchstart', (e) => {
     e.stopPropagation();
     dragStart = { x, y };
@@ -229,23 +241,11 @@ function createTempLine(x, y) {
   svg.appendChild(tempLine);
 }
 
-document.addEventListener('touchmove', (e) => {
-  if (dragStart && tempLine) {
-    const touch = e.touches[0];
-    tempLine.setAttribute('x2', touch.clientX);
-    tempLine.setAttribute('y2', touch.clientY);
-  }
-});
-
-document.addEventListener('touchend', (e) => {
-  if (!dragStart || !dragStartTime) return;
-  const duration = Date.now() - dragStartTime;
+function endLineDraw(x, y, duration) {
   const width = 2 + Math.min(duration, 2000) / 2000 * 8;
-
-  const touch = e.changedTouches[0];
   const target = allCircles.find(c => {
-    const dx = touch.clientX - c.x;
-    const dy = touch.clientY - c.y;
+    const dx = x - c.x;
+    const dy = y - c.y;
     return Math.hypot(dx, dy) < 25 && (c.x !== dragStart.x || c.y !== dragStart.y);
   });
 
@@ -255,7 +255,6 @@ document.addEventListener('touchend', (e) => {
     const dist = Math.sqrt(dx * dx + dy * dy);
     const unitX = dx / dist;
     const unitY = dy / dist;
-
     const sx = dragStart.x + unitX * endpointRadius;
     const sy = dragStart.y + unitY * endpointRadius;
     const ex = target.x - unitX * endpointRadius;
@@ -286,12 +285,34 @@ document.addEventListener('touchend', (e) => {
   tempLine = null;
   dragStart = null;
   dragStartTime = null;
+}
+
+document.addEventListener('touchmove', (e) => {
+  if (dragStart && tempLine) {
+    const touch = e.touches[0];
+    tempLine.setAttribute('x2', touch.clientX);
+    tempLine.setAttribute('y2', touch.clientY);
+  }
+});
+document.addEventListener('touchend', (e) => {
+  if (!dragStart || !dragStartTime) return;
+  const touch = e.changedTouches[0];
+  endLineDraw(touch.clientX, touch.clientY, Date.now() - dragStartTime);
+});
+document.addEventListener('mousemove', (e) => {
+  if (dragStart && tempLine) {
+    tempLine.setAttribute('x2', e.clientX);
+    tempLine.setAttribute('y2', e.clientY);
+  }
+});
+document.addEventListener('mouseup', (e) => {
+  if (!dragStart || !dragStartTime) return;
+  endLineDraw(e.clientX, e.clientY, Date.now() - dragStartTime);
 });
 
-// init arcs
+// 初始化圆圈和标签
 createArcPoints(20, 200, 0, 342).forEach(({x, y}, i) => setupHotspot(x, y, labels[i] || '点' + i));
 createArcPoints(10, 400, 0, 324).forEach(({x, y}, i) => setupHotspot(x, y, labels[i+20] || '点' + (i+20)));
-
 </script>
 </body>
 </html>
