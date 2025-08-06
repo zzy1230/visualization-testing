@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -79,23 +80,58 @@
       box-sizing: border-box;
       cursor: pointer;
     }
+    svg {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
+    }
   </style>
 </head>
 <body>
-
+<svg id="lines"></svg>
 <script>
 const centerX = window.innerWidth / 2;
 const centerY = window.innerHeight / 2;
+const svg = document.getElementById('lines');
+const allCircles = [];
 const maxHoldDuration = 3000;
-const audioMap = new Map();
-let latestRipple = null;
-
-// ✅ 使用本地相对路径（适配 GitHub Pages）
+const endpointRadius = 6;
+const labels = [...Array(34)].map((_, i) => ["Moaning", "smile", "eyebrow raise", "frown", "Squinting", "Staring", "Glancing", "Eye gaze", "low/Incessant talking", "Hesitation / Pauses","Silence intervals", "Laughter", "Yawning", "Sneering, scoffing", "Sighing", ".Throat clearing", ".Stuttering", "Mumbling", "False starts", "Filler sounds (“um”, “uh”, “hmm”)","Stress / Tension", "Uncertainty / Doubt", "Confidence / Authority", "Anger", "Sadness / Sorrow", "Polite or Softened", "Testing reaction", "Command / Directive", "Tentative Framing", "Sarcasm", "Avoiding conflict", "Drawing boundaries", "Showing authority", "Hint of the end"][i] || ("点" + (i + 1)));
 const audioSources = {
-  0: "audio/sound0.mp3",
-  1: "audio/sound1.mp3",
-  2: "audio/sound2.mp3"
+  0: "https://interactive-examples.mdn.mozilla.net/media/cc0-audio/t-rex-roar.mp3",
+  1: "https://example.com/audio2.mp3",
+  2: "https://interactive-examples.mdn.mozilla.net/media/cc0-audio/t-rex-roar.mp3",
+  // ...
 };
+
+
+let dragStart = null;
+let dragStartTime = null;
+let tempLine = null;
+let latestRipple = null;
+const audioMap = new Map();
+
+
+function registerAudio(x, y, index) {
+  const key = `${x},${y}`;
+  const url = audioSources[index]; // index 是该点的编号
+  if (url && !audioMap.has(key)) {
+    const audio = new Audio(url);
+    audioMap.set(key, audio);
+  }
+}
+
+function playAudioForPoint(x, y) {
+  const key = `${x},${y}`;
+  const audio = audioMap.get(key);
+  if (audio) {
+    audio.currentTime = 0;   // 
+    audio.play();
+}
 
 function createArcPoints(count, radius, startDeg, endDeg) {
   const points = [];
@@ -106,29 +142,13 @@ function createArcPoints(count, radius, startDeg, endDeg) {
     const angle = startRad + (endRad - startRad) * t;
     points.push({
       x: centerX + radius * Math.cos(angle),
-      y: centerY + radius * Math.sin(angle),
-      index: i
+      y: centerY + radius * Math.sin(angle)
     });
   }
   return points;
 }
 
-function registerAudio(x, y, index) {
-  const key = `${x},${y}`;
-  const url = audioSources[index];
-  if (url && !audioMap.has(key)) {
-    const audio = new Audio(url);
-    audioMap.set(key, audio);
-  }
-}
-
-function playAudioForPoint(x, y) {
-  const key = `${x},${y}`;
-  const audio = audioMap.get(key);
-  if (audio) audio.play();
-}
-
-function setupHotspot(x, y, index) {
+function setupHotspot(x, y, labelText, index) {
   const wrapper = document.createElement('div');
   wrapper.className = 'hotspot-wrapper';
   wrapper.style.left = x + 'px';
@@ -136,13 +156,11 @@ function setupHotspot(x, y, index) {
 
   const hotspot = document.createElement('div');
   hotspot.className = 'hotspot';
-
   const ring = document.createElement('div');
   ring.className = 'progress-ring';
-
   const label = document.createElement('div');
   label.className = 'label';
-  label.textContent = "点 " + (index + 1);
+  label.textContent = labelText;
 
   wrapper.appendChild(ring);
   wrapper.appendChild(hotspot);
@@ -161,6 +179,9 @@ function setupHotspot(x, y, index) {
       ring.style.transform = `translate(-50%, -50%) scale(${1 + ratio * 1.5})`;
       if (ratio >= 1) clearInterval(holdTimer);
     }, 16);
+    dragStart = { x, y };
+    dragStartTime = Date.now();
+    createTempLine(x, y);
   }
 
   function endHold() {
@@ -173,6 +194,8 @@ function setupHotspot(x, y, index) {
     wrapper.remove();
     holdStartTime = null;
     triggerRipple(x, y, distance, index);
+    dragStart = null;
+    dragStartTime = null;
   }
 
   hotspot.addEventListener('touchstart', startHold, { passive: false });
@@ -181,14 +204,12 @@ function setupHotspot(x, y, index) {
   document.addEventListener('mouseup', endHold);
 }
 
-function triggerRipple(x, y, distance, index) {
+function triggerRipple(x, y, distance) {
   latestRipple = { x, y };
   registerAudio(x, y, index);
-
   const count = 2 + Math.floor(distance / 100);
   let prev = 0;
   const radii = [];
-
   for (let i = 0; i < count; i++) {
     const factor = (count - i) / count;
     const gap = 20 + Math.random() * 10;
@@ -220,7 +241,6 @@ function triggerRipple(x, y, distance, index) {
   });
 }
 
-// 播放最近触发水波纹点的音频
 document.addEventListener("click", function(e) {
   if (!latestRipple) return;
   const { x, y } = latestRipple;
@@ -231,11 +251,8 @@ document.addEventListener("click", function(e) {
   }
 });
 
-// 创建点位（仅内圈 20 个）
-createArcPoints(20, 200, 0, 342).forEach(({x, y, index}) => {
-  setupHotspot(x, y, index);
-});
+createArcPoints(20, 200, 0, 342).forEach(({x, y}, i) => setupHotspot(x, y, labels[i] || '点' + i, i));
+createArcPoints(14, 400, 0, 324).forEach(({x, y}, i) => setupHotspot(x, y, labels[i+20] || '点' + (i+20), (i+20)));
 </script>
-
 </body>
 </html>
