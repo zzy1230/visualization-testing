@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -39,8 +38,8 @@
     }
     .progress-ring {
       position: absolute;
-      width: 30px;
-      height: 30px;
+      width: 20px;
+      height: 20px;
       border-radius: 50%;
       border: 2px solid #ffffff;
       box-sizing: border-box;
@@ -80,46 +79,23 @@
       box-sizing: border-box;
       cursor: pointer;
     }
-    svg {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-      z-index: 0;
-    }
   </style>
 </head>
 <body>
-<svg id="lines"></svg>
+
 <script>
 const centerX = window.innerWidth / 2;
 const centerY = window.innerHeight / 2;
-const svg = document.getElementById('lines');
-const allCircles = [];
 const maxHoldDuration = 3000;
-const endpointRadius = 6;
-const labels = [...Array(30)].map((_, i) => ["起点", "分发", "分析", "校验", "同步", "验证", "出口", "入口", "分流", "缓存","确认", "检查", "解码", "转发", "等待", "中继", "核心", "接口", "终端", "回环","感应", "识别", "授权", "提交", "拦截", "记录", "转码", "备份", "统计", "完成"][i] || ("点" + (i + 1)));
-
-let dragStart = null;
-let dragStartTime = null;
-let tempLine = null;
-let latestRipple = null;
 const audioMap = new Map();
+let latestRipple = null;
 
-function registerAudio(x, y) {
-  const key = `${x},${y}`;
-  if (!audioMap.has(key)) {
-    const audio = new Audio("https://interactive-examples.mdn.mozilla.net/media/cc0-audio/t-rex-roar.mp3");
-    audioMap.set(key, audio);
-  }
-}
-function playAudioForPoint(x, y) {
-  const key = `${x},${y}`;
-  const audio = audioMap.get(key);
-  if (audio) audio.play();
-}
+// ✅ 使用本地相对路径（适配 GitHub Pages）
+const audioSources = {
+  0: "audio/sound0.mp3",
+  1: "audio/sound1.mp3",
+  2: "audio/sound2.mp3"
+};
 
 function createArcPoints(count, radius, startDeg, endDeg) {
   const points = [];
@@ -130,13 +106,29 @@ function createArcPoints(count, radius, startDeg, endDeg) {
     const angle = startRad + (endRad - startRad) * t;
     points.push({
       x: centerX + radius * Math.cos(angle),
-      y: centerY + radius * Math.sin(angle)
+      y: centerY + radius * Math.sin(angle),
+      index: i
     });
   }
   return points;
 }
 
-function setupHotspot(x, y, labelText) {
+function registerAudio(x, y, index) {
+  const key = `${x},${y}`;
+  const url = audioSources[index];
+  if (url && !audioMap.has(key)) {
+    const audio = new Audio(url);
+    audioMap.set(key, audio);
+  }
+}
+
+function playAudioForPoint(x, y) {
+  const key = `${x},${y}`;
+  const audio = audioMap.get(key);
+  if (audio) audio.play();
+}
+
+function setupHotspot(x, y, index) {
   const wrapper = document.createElement('div');
   wrapper.className = 'hotspot-wrapper';
   wrapper.style.left = x + 'px';
@@ -144,11 +136,13 @@ function setupHotspot(x, y, labelText) {
 
   const hotspot = document.createElement('div');
   hotspot.className = 'hotspot';
+
   const ring = document.createElement('div');
   ring.className = 'progress-ring';
+
   const label = document.createElement('div');
   label.className = 'label';
-  label.textContent = labelText;
+  label.textContent = "点 " + (index + 1);
 
   wrapper.appendChild(ring);
   wrapper.appendChild(hotspot);
@@ -167,9 +161,6 @@ function setupHotspot(x, y, labelText) {
       ring.style.transform = `translate(-50%, -50%) scale(${1 + ratio * 1.5})`;
       if (ratio >= 1) clearInterval(holdTimer);
     }, 16);
-    dragStart = { x, y };
-    dragStartTime = Date.now();
-    createTempLine(x, y);
   }
 
   function endHold() {
@@ -181,9 +172,7 @@ function setupHotspot(x, y, labelText) {
     const distance = 80 + sizeFactor * 220;
     wrapper.remove();
     holdStartTime = null;
-    triggerRipple(x, y, distance);
-    dragStart = null;
-    dragStartTime = null;
+    triggerRipple(x, y, distance, index);
   }
 
   hotspot.addEventListener('touchstart', startHold, { passive: false });
@@ -192,12 +181,14 @@ function setupHotspot(x, y, labelText) {
   document.addEventListener('mouseup', endHold);
 }
 
-function triggerRipple(x, y, distance) {
+function triggerRipple(x, y, distance, index) {
   latestRipple = { x, y };
-  registerAudio(x, y);
-  const count = 3 + Math.floor(distance / 100);
+  registerAudio(x, y, index);
+
+  const count = 2 + Math.floor(distance / 100);
   let prev = 0;
   const radii = [];
+
   for (let i = 0; i < count; i++) {
     const factor = (count - i) / count;
     const gap = 20 + Math.random() * 10;
@@ -219,7 +210,7 @@ function triggerRipple(x, y, distance) {
       ripple.remove();
       const circle = document.createElement('div');
       circle.className = 'circle';
-      const borderWidth = 2 + Math.random() * 5;
+      const borderWidth = 1 + Math.random() * 5;
       circle.style.borderWidth = borderWidth + 'px';
       circle.style.width = circle.style.height = radius * 2 + 'px';
       circle.style.left = x - radius + 'px';
@@ -229,6 +220,7 @@ function triggerRipple(x, y, distance) {
   });
 }
 
+// 播放最近触发水波纹点的音频
 document.addEventListener("click", function(e) {
   if (!latestRipple) return;
   const { x, y } = latestRipple;
@@ -239,8 +231,11 @@ document.addEventListener("click", function(e) {
   }
 });
 
-createArcPoints(20, 200, 0, 342).forEach(({x, y}, i) => setupHotspot(x, y, labels[i] || '点' + i));
-createArcPoints(10, 400, 0, 324).forEach(({x, y}, i) => setupHotspot(x, y, labels[i+20] || '点' + (i+20)));
+// 创建点位（仅内圈 20 个）
+createArcPoints(20, 200, 0, 342).forEach(({x, y, index}) => {
+  setupHotspot(x, y, index);
+});
 </script>
+
 </body>
 </html>
