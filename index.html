@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <title>水波纹 + 拖动连线 + 音频 + 标签动画</title>
+  <title>Language without words</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <style>
     html, body {
@@ -17,23 +17,44 @@
       -webkit-user-select: none;
       -webkit-touch-callout: none;
       -webkit-tap-highlight-color: transparent;
+      box-sizing: border-box;
     }
 
-    video#bgVideo {
+    /* ===== 16:9 画布容器（所有坐标都相对这里） ===== */
+    #canvasWrapper {
       position: fixed;
-      top: 75px; left: 154px;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: black;
+    }
+    #canvas {
+      position: relative;
+      width: 100vw;           /* 画布宽度，可改 */
+      aspect-ratio: 16 / 9;  /* 强制 16:9 */
+      overflow: hidden;
+    }
+
+    /* 视频：在画布中心，占 80% 尺寸 */
+    video#bgVideo {
+      position: absolute;
+      left: 50%; top: 50.5%;
+      transform: translate(-50%, -50%);
       width: 80%;
       height: 80%;
-      object-fit: cover;
-      //z-index: -1;
+      object-fit: cover;     /* 如需不裁剪可改为 contain */
     }
 
+    /* 播放按钮层：不拦截画布事件，只拦截按钮 */
     #playOverlay {
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      z-index: 100;
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+      pointer-events: none;
     }
     #playButton {
       font-size: 12px;
@@ -42,8 +63,17 @@
       border-radius: 8px;
       background: black;
       color: white;
-      //cursor: pointer;
-      //box-shadow: 0 0 10px rgba(255,255,255,0.5);
+      pointer-events: auto;
+    }
+
+    /* 线层（SVG）覆盖画布 */
+    svg#lines {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1;
     }
 
     .hotspot-wrapper {
@@ -51,6 +81,8 @@
       width: 0;
       height: 0;
       text-align: center;
+      z-index: 2;
+      pointer-events: none; /* 容器不接事件，子元素接 */
     }
     .hotspot {
       position: absolute;
@@ -63,7 +95,8 @@
       box-shadow: 0 0 8px #fff;
       transform: translate(-50%, -50%);
       cursor: pointer;
-      z-index: 10;
+      pointer-events: auto; /* 点可接收事件 */
+      z-index: 3;
     }
     .progress-ring {
       position: absolute;
@@ -71,17 +104,21 @@
       height: 18px;
       border-radius: 50%;
       border: 1px solid #fff;
-      box-sizing: border-box;
-      z-index: 9;
       transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 2;
     }
     .label {
       position: absolute;
+      left: 50%;
       transform: translateX(-50%);
       color: #fff;
       font-size: 12px;
       white-space: nowrap;
-      transition: top 1s ease;
+      transition: opacity .6s ease, top 1s ease;
+      top: 20px;
+      opacity: 0;
+      pointer-events: none;
     }
 
     .ripple {
@@ -92,6 +129,8 @@
       transform: scale(0);
       animation: rippleAnim 1.2s ease-out forwards;
       box-sizing: border-box;
+      z-index: 1;
+      pointer-events: none;
     }
     @keyframes rippleAnim {
       to {
@@ -108,52 +147,55 @@
       pointer-events: auto;
       box-sizing: border-box;
       cursor: pointer;
-    }
-
-    svg {
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      pointer-events: none;
-      z-index: 0;
+      z-index: 1;
     }
   </style>
 </head>
 <body>
 
-<!-- 背景视频 -->
-<video id="bgVideo" muted loop playsinline preload="auto">
-  <source src="Final background.mp4" type="video/mp4" />
-  你的浏览器不支持 HTML5 视频。
-</video>
+<!-- 画布容器：视频 + 线层 + 热点都在里面 -->
+<div id="canvasWrapper">
+  <div id="canvas">
+    <video id="bgVideo" muted playsinline preload="auto">
+      <source src="Final.mp4" type="video/mp4" />
+      你的浏览器不支持 HTML5 视频。
+    </video>
 
-<!-- 播放按钮 -->
-<div id="playOverlay">
-  <button id="playButton">Play</button>
+    <!-- 播放按钮（不阻挡画布事件） -->
+    <div id="playOverlay">
+      <button id="playButton">Play</button>
+    </div>
+
+    <!-- 线层 -->
+    <svg id="lines"></svg>
+  </div>
 </div>
 
-<svg id="lines"></svg>
-
 <script>
-const centerX = window.innerWidth / 2;
-const centerY = window.innerHeight / 2;
-const svg = document.getElementById('lines');
+/* ================== 常量 & 数据 ================== */
+const canvas = document.getElementById('canvas');
+const svg    = document.getElementById('lines');
+const video  = document.getElementById('bgVideo');
+
 const maxHoldDuration = 3000;
+const LABEL_SHOW_AT   = 45;
+let labelsShownOnce   = false;
+
 const labels = [...Array(59)].map((_, i) =>
   ["Filler sounds", "Mumbling", "Throat clearing", "Sneering, scoffing", "Laughter", "Pauses", "Sinking intonation",
-  "Prolonged sound ", "Hesitation", "False starts","Stuttering", "Sighing", "Yawning",
+   "Prolonged sound ", "Hesitation", "False starts","Stuttering", "Sighing", "Yawning",
    "Silence intervals", "Incessant talking", "Sarcastic intonation", "Rising intonation",
    "Interruption / Overlap ", "Turn-taking Cues", "Backchanneling","Interactional Signals",
    " Hint of the end", "Drawing boundaries",
    "Avoiding conflict", "Testing reaction", "Sorrow", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ",
    "Sadness", "Happy", "Anger", "Doubt", "Uncertainty", "Tension", "Stress", "Confidence","Polite", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ",
    "Softened", "Command","Sarcasm","Showing authority"
-   ][i] || ("点" + (i + 1))
+  ][i] || ("点" + (i + 1))
 );
 
 const audioSources = {
-  7: "audio/Part1_Prolonged sound.mp3",
-  8: "audio/Part2_Hesitation.mp3",
+  7:  "audio/Part1_Prolonged sound.mp3",
+  8:  "audio/Part2_Hesitation.mp3",
   10: "audio/Part3_Stuttering.mp3",
   16: "audio/Part5_Rising intonation.mp3",
   17: "audio/Part6_Filler sounds.mp3",
@@ -162,63 +204,77 @@ const audioSources = {
 
 let tempLine = null;
 let latestRipple = null;
-const audioMap = new Map();
-const rippleCenters = [];
-const labelRefs = new Map();
+const audioMap      = new Map(); // key: index
+const rippleCenters = [];        // {x, y, index}
+const labelRefs     = new Map(); // key: index => labelEl
 
-// ▶️ 视频控制
+/* ================== 坐标工具（相对画布 & 视频） ================== */
+function getCanvasRect(){ return canvas.getBoundingClientRect(); }
+function getVideoRect (){ return video.getBoundingClientRect(); }
+function toLocal(e){
+  const t = e.touches ? e.touches[0] : e;
+  const r = getCanvasRect();
+  return { x: t.clientX - r.left, y: t.clientY - r.top };
+}
+function cx(){ return getCanvasRect().width  / 2; }
+function cy(){ return getCanvasRect().height / 2; }
+
+/* ================== 视频播放按钮 ================== */
 document.getElementById("playButton").addEventListener("click", () => {
-  const video = document.getElementById("bgVideo");
   video.muted = false;
-  video.loop = false;
-  video.play().then(() => {
-    document.getElementById("playOverlay").style.display = "none";
-  }).catch(err => {
-    console.error("自动播放失败：", err);
-  });
+  video.loop  = false;
+  video.play().catch(err => console.error("播放失败：", err));
+  document.getElementById("playOverlay").style.display = "none";
   video.addEventListener("ended", () => {
     video.pause();
     video.currentTime = video.duration;
   });
 });
 
-// 📍节点布局
-function createArcPoints(count, radius, startDeg, endDeg) {
-  const points = [];
-  const startRad = startDeg * Math.PI / 180;
-  const endRad = endDeg * Math.PI / 180;
+/* ====== 45 秒显示标签（只出现一次） ====== */
+function showAllLabels(){
+  labelRefs.forEach(label => { if (label) label.style.opacity = 1; });
+}
+function handleLabelRevealOnce(){
+  if (!labelsShownOnce && video.currentTime >= LABEL_SHOW_AT){
+    showAllLabels();
+    labelsShownOnce = true;
+    video.removeEventListener('timeupdate', handleLabelRevealOnce);
+    video.removeEventListener('seeked',      handleLabelRevealOnce);
+    video.removeEventListener('loadedmetadata', handleLabelRevealOnce);
+  }
+}
+video.addEventListener('timeupdate',      handleLabelRevealOnce);
+video.addEventListener('seeked',          handleLabelRevealOnce);
+video.addEventListener('loadedmetadata',  handleLabelRevealOnce);
+
+/* ================== 点位计算（相对画布中心，半径基于视频尺寸） ================== */
+function createArcPoints(count, radiusPx, startDeg, endDeg) {
+  const pts = [];
+  const start = startDeg * Math.PI / 180;
+  const end   = endDeg   * Math.PI / 180;
   for (let i = 0; i < count; i++) {
-    const t = i / (count - 1);
-    const angle = startRad + (endRad - startRad) * t;
-    points.push({
-      x: centerX + radius * Math.cos(angle),
-      y: centerY + radius * Math.sin(angle)
-    });
+    const t = (count === 1) ? 0.5 : i / (count - 1);
+    const ang = start + (end - start) * t;
+    pts.push({ x: cx() + radiusPx * Math.cos(ang),
+               y: cy() + radiusPx * Math.sin(ang) });
   }
-  return points;
+  return pts;
 }
 
-// 🎵 音频注册
-function registerAudio(x, y, index) {
-  const key = `${x},${y}`;
+/* ================== 音频（按 index 绑定） ================== */
+function registerAudio(index) {
   const url = audioSources[index];
-  if (url && !audioMap.has(key)) {
-    const audio = new Audio(url);
-    audioMap.set(key, audio);
+  if (url && !audioMap.has(index)) {
+    audioMap.set(index, new Audio(url));
   }
 }
-
-function playAudioForPoint(x, y) {
-  const key = `${x},${y}`;
-  const audio = audioMap.get(key);
-  if (audio) {
-    audio.pause();
-    audio.currentTime = 0;
-    audio.play();
-  }
+function playAudioByIndex(index){
+  const audio = audioMap.get(index);
+  if (audio) { audio.pause(); audio.currentTime = 0; audio.play(); }
 }
 
-// 🕳️ 拖动连线
+/* ================== 拖动连线（端点空心圆 + 线段贴边） ================== */
 function createTempLine(x, y) {
   if (!tempLine) {
     tempLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -228,164 +284,154 @@ function createTempLine(x, y) {
   }
 
   const move = (e) => {
-    const ex = e.touches ? e.touches[0].clientX : e.clientX;
-    const ey = e.touches ? e.touches[0].clientY : e.clientY;
-    const dx = ex - x;
-    const dy = ey - y;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    const offset = 6;
-    const ratio = offset / len;
-    const x1 = x + dx * ratio;
-    const y1 = y + dy * ratio;
-    const x2 = ex - dx * ratio;
-    const y2 = ey - dy * ratio;
-    tempLine.setAttribute("x1", x1);
-    tempLine.setAttribute("y1", y1);
-    tempLine.setAttribute("x2", x2);
-    tempLine.setAttribute("y2", y2);
+    const p  = toLocal(e);
+    const dx = p.x - x, dy = p.y - y;
+    const len = Math.hypot(dx, dy) || 1;
+    const r = 6, ratio = r / len;
+    tempLine.setAttribute("x1", x + dx * ratio);
+    tempLine.setAttribute("y1", y + dy * ratio);
+    tempLine.setAttribute("x2", p.x - dx * ratio);
+    tempLine.setAttribute("y2", p.y - dy * ratio);
   };
 
   const up = (e) => {
     document.removeEventListener("mousemove", move);
-    document.removeEventListener("mouseup", up);
+    document.removeEventListener("mouseup",   up);
     document.removeEventListener("touchmove", move);
-    document.removeEventListener("touchend", up);
+    document.removeEventListener("touchend",  up);
 
-    const x2 = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
-    const y2 = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
-    const target = rippleCenters.find(p => Math.hypot(p.x - x2, p.y - y2) < 20);
+    const p = toLocal(e);
+    const target = rippleCenters.find(c => Math.hypot(c.x - p.x, c.y - p.y) < 20);
     if (target) drawLineWithEndpoints(x, y, target.x, target.y);
-    if (tempLine) {
-      tempLine.remove();
-      tempLine = null;
-    }
+
+    if (tempLine) { tempLine.remove(); tempLine = null; }
   };
 
   document.addEventListener("mousemove", move);
-  document.addEventListener("mouseup", up);
+  document.addEventListener("mouseup",   up);
   document.addEventListener("touchmove", move);
-  document.addEventListener("touchend", up);
+  document.addEventListener("touchend",  up);
 }
 
 function drawLineWithEndpoints(x1, y1, x2, y2) {
-  if ([x1, y1, x2, y2].some(val => isNaN(val))) return;
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const len = Math.sqrt(dx * dx + dy * dy);
+  if ([x1, y1, x2, y2].some(Number.isNaN)) return;
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.hypot(dx, dy) || 1;
   const r = 6;
-  const offsetX = (dx * r) / len;
-  const offsetY = (dy * r) / len;
+  const ox = dx * r / len, oy = dy * r / len;
 
   const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-  line.setAttribute("x1", x1 + offsetX);
-  line.setAttribute("y1", y1 + offsetY);
-  line.setAttribute("x2", x2 - offsetX);
-  line.setAttribute("y2", y2 - offsetY);
+  line.setAttribute("x1", x1 + ox);
+  line.setAttribute("y1", y1 + oy);
+  line.setAttribute("x2", x2 - ox);
+  line.setAttribute("y2", y2 - oy);
   line.setAttribute("stroke", "white");
   line.setAttribute("stroke-width", "2");
   svg.appendChild(line);
 
   [[x1, y1], [x2, y2]].forEach(([cx, cy]) => {
-    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    circle.setAttribute("cx", cx);
-    circle.setAttribute("cy", cy);
-    circle.setAttribute("r", r);
-    circle.setAttribute("stroke", "white");
-    circle.setAttribute("fill", "none");
-    circle.setAttribute("stroke-width", "2");
-    svg.appendChild(circle);
+    const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    c.setAttribute("cx", cx);
+    c.setAttribute("cy", cy);
+    c.setAttribute("r", r);
+    c.setAttribute("stroke", "white");
+    c.setAttribute("fill", "none");
+    c.setAttribute("stroke-width", "2");
+    svg.appendChild(c);
   });
 }
-document.addEventListener('contextmenu', function(e) {
+
+/* ================== 右键轻波纹（不改变状态） ================== */
+canvas.addEventListener('contextmenu', function(e) {
   e.preventDefault();
-
-  const x = e.clientX;
-  const y = e.clientY;
-
-  // 生成一个轻微的水波纹效果（不触发任何其他动作）
+  const p = toLocal(e);
   const radius = 40;
   const ripple = document.createElement('div');
   ripple.className = 'ripple';
-  ripple.style.width = ripple.style.height = radius * 2 + 'px';
-  ripple.style.left = x - radius + 'px';
-  ripple.style.top = y - radius + 'px';
-  document.body.appendChild(ripple);
-
-  // 自动移除 ripple 元素
+  ripple.style.width  = ripple.style.height = `${radius * 2}px`;
+  ripple.style.left   = `${p.x - radius}px`;
+  ripple.style.top    = `${p.y - radius}px`;
+  canvas.appendChild(ripple);
   setTimeout(() => ripple.remove(), 1000);
 });
 
-
-// 🌊 同心圆效果 + 移动标签
+/* ================== 水波纹 + 同心圆 + 标签下移 ================== */
 function triggerRipple(x, y, duration, index) {
   latestRipple = { x, y };
-  rippleCenters.push({ x, y });
-  registerAudio(x, y, index);
+  rippleCenters.push({ x, y, index });
+  registerAudio(index);
 
-  const clamped = Math.min(duration, maxHoldDuration);
-  const sizeFactor = clamped / maxHoldDuration;
-  const baseDistance = 5 + sizeFactor * 300 ;
+  const clamped      = Math.min(duration, maxHoldDuration);
+  const sizeFactor   = clamped / maxHoldDuration;
+
+  /* 同心圆整体大小：随视频 80% 尺寸缩放（避免圈太大或太小） */
+  const vrect  = getVideoRect();
+  const crect  = getCanvasRect();
+  const scale  = Math.min(vrect.width, vrect.height) / Math.min(crect.width, crect.height);
+  const baseDistance = (5 + sizeFactor * 300) * scale;
 
   const count = 3 + Math.floor(baseDistance / 100);
   let prev = 0;
 
   for (let i = 0; i < count; i++) {
     const factor = (count - i) / count;
-    const gap = 10 + Math.random() * 10;
+    const gap    = 10 + Math.random() * 10;
     const radius = prev + gap * factor;
     prev = radius;
 
     const ripple = document.createElement('div');
     ripple.className = 'ripple';
-    ripple.style.width = ripple.style.height = radius * 2 + 'px';
-    ripple.style.left = x - radius + 'px';
-    ripple.style.top = y - radius + 'px';
-    ripple.style.animationDelay = i * 0.05 + 's';
-    document.body.appendChild(ripple);
+    ripple.style.width  = ripple.style.height = `${radius * 2}px`;
+    ripple.style.left   = `${x - radius}px`;
+    ripple.style.top    = `${y - radius}px`;
+    ripple.style.animationDelay = `${i * 0.05}s`;
+    canvas.appendChild(ripple);
 
     setTimeout(() => {
       ripple.remove();
       const circle = document.createElement('div');
       circle.className = 'circle';
-      const borderWidth = 1 + Math.random() * 4;
-      circle.style.borderWidth = borderWidth + 'px';
-      circle.style.width = circle.style.height = radius * 2 + 'px';
-      circle.style.left = x - radius + 'px';
-      circle.style.top = y - radius + 'px';
-      document.body.appendChild(circle);
+      const bw = 1 + Math.random() * 4;
+      circle.style.borderWidth = `${bw}px`;
+      circle.style.width  = circle.style.height = `${radius * 2}px`;
+      circle.style.left   = `${x - radius}px`;
+      circle.style.top    = `${y - radius}px`;
+      canvas.appendChild(circle);
     }, 800 + i * 50);
   }
 
-  // 👇 让标签向下移动到圆圈边缘
-  const label = labelRefs.get(`${x},${y}`);
+  // 标签下移到“最外圈半径 + 10px”
+  const label = labelRefs.get(index);
   if (label) {
-    label.style.top = `${y + 40 }px`;
+    label.style.top     = `${baseDistance + 10}px`;
+    if (labelsShownOnce) label.style.opacity = 1;  // 若 45s 已到，保持可见
   }
 }
 
-// 🔘 节点设置
+/* ================== 热点（长按触发） ================== */
 function setupHotspot(x, y, labelText, index) {
   const wrapper = document.createElement('div');
   wrapper.className = 'hotspot-wrapper';
-  wrapper.style.left = x + 'px';
-  wrapper.style.top = y + 'px';
+  wrapper.style.left = `${x}px`;
+  wrapper.style.top  = `${y}px`;
 
   const hotspot = document.createElement('div');
   hotspot.className = 'hotspot';
+
   const ring = document.createElement('div');
   ring.className = 'progress-ring';
 
   const label = document.createElement('div');
   label.className = 'label';
   label.textContent = labelText;
-  label.style.left = x + 'px';
-  label.style.top = (y + 20) + 'px';
-  document.body.appendChild(label);
-  labelRefs.set(`${x},${y}`, label);
+  label.style.opacity = labelsShownOnce ? 1 : 0;
 
   wrapper.appendChild(ring);
   wrapper.appendChild(hotspot);
-  document.body.appendChild(wrapper);
+  wrapper.appendChild(label);       
+  canvas.appendChild(wrapper);
+
+  labelRefs.set(index, label);
 
   let holdStartTime = null;
   let holdTimer = null;
@@ -399,51 +445,79 @@ function setupHotspot(x, y, labelText, index) {
       ring.style.transform = `translate(-50%, -50%) scale(${1 + ratio * 1.5})`;
     }, 16);
   }
-
   function endHold(e) {
     clearInterval(holdTimer);
     if (!holdStartTime) return;
     const duration = Date.now() - holdStartTime;
-    wrapper.remove();
-    triggerRipple(x, y, duration, index);
     holdStartTime = null;
+
+    // 点按后：点与环消失，保留 wrapper（让 label 留下并可移动）
+    ring.remove();
+    hotspot.remove();
+
+    // 触发波纹与同心圆，并推进标签到圈边
+    triggerRipple(x, y, duration, index);
   }
 
+  // 左键/触摸长按
   hotspot.addEventListener('mousedown', (e) => {
-  if (e.button !== 0) return; // 仅限左键触发
-  startHold(e);
-  document.addEventListener('mouseup', endHold, { once: true });
-});
-
-  hotspot.addEventListener('touchstart', startHold, { passive: false });
-  hotspot.addEventListener('touchend', endHold);
-
-  document.addEventListener('mousedown', function(e) {
-    const target = rippleCenters.find(p => Math.hypot(p.x - e.clientX, p.y - e.clientY) < 20);
-    if (target) {
-      createTempLine(target.x, target.y);
-    }
+    if (e.button !== 0) return;
+    startHold(e);
+    document.addEventListener('mouseup', endHold, { once: true });
   });
+  hotspot.addEventListener('touchstart', startHold, { passive: false });
+  hotspot.addEventListener('touchend',   endHold);
 }
 
-// 🔊 点击圆播放音频
-document.addEventListener("click", function(e) {
-  for (const { x, y } of rippleCenters) {
-    const dx = e.clientX - x;
-    const dy = e.clientY - y;
-    if (Math.sqrt(dx * dx + dy * dy) < 20) {
-      playAudioForPoint(x, y);
+/* ================== 点击中心播放音频 ================== */
+canvas.addEventListener("click", function(e) {
+  const p = toLocal(e);
+  for (const rc of rippleCenters) {
+    if (Math.hypot(p.x - rc.x, p.y - rc.y) < 20) {
+      playAudioByIndex(rc.index);
+      break;
     }
   }
 });
 
-// 初始化所有点
-createArcPoints(17, 200, 0, 339).forEach(({x, y}, i) => setupHotspot(x, y, labels[i], i));
-createArcPoints(4, 350, 45, 315).forEach(({x, y}, i) => setupHotspot(x, y, labels[i + 17], i + 17));
-createArcPoints(38, 500, 0, 351).forEach(({x, y}, i) => setupHotspot(x, y, labels[i + 21], i + 21));
+/* ================== 任意位置拖拽：从“已生成中心”开始吸附 ================== */
+canvas.addEventListener('mousedown', function(e) {
+  if (e.button !== 0) return;
+  const p = toLocal(e);
+  const start = rippleCenters.find(c => Math.hypot(c.x - p.x, c.y - p.y) < 20);
+  if (start) createTempLine(start.x, start.y);
+});
+
+/* ================== 初始化 & 响应式布局 ================== */
+function mountHotspots() {
+  // 半径基于“视频实际尺寸”的最小边，保证与视频 80% 同步缩放
+  const vrect  = getVideoRect();
+  const minDim = Math.min(vrect.width, vrect.height);
+  const R1 = minDim * 0.29;  // ≈ 200px（相对视频尺寸）
+  const R2 = minDim * 0.51;  // ≈ 350px
+  const R3 = minDim * 0.72;  // ≈ 500px
+
+  createArcPoints(17, R1, 0, 339).forEach(({x, y}, i) => setupHotspot(x, y, labels[i], i));
+  createArcPoints( 4, R2, 45, 315).forEach(({x, y}, i) => setupHotspot(x, y, labels[i + 17], i + 17));
+  createArcPoints(38, R3, 0, 351).forEach(({x, y}, i) => setupHotspot(x, y, labels[i + 21], i + 21));
+}
+
+function clearDynamic() {
+  canvas.querySelectorAll('.hotspot-wrapper').forEach(n => n.remove());
+  canvas.querySelectorAll('.circle, .ripple').forEach(n => n.remove());
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  rippleCenters.length = 0;
+  labelRefs.clear();
+}
+
+function mountAll() {
+  clearDynamic();
+  mountHotspots();
+}
+
+window.addEventListener('load',   mountAll);
+window.addEventListener('resize', mountAll);
 </script>
 
 </body>
 </html>
-
-
