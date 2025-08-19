@@ -403,7 +403,7 @@ function triggerRipple(x, y, duration, index) {
   // 标签下移到“最外圈半径 + 10px”
   const label = labelRefs.get(index);
   if (label) {
-    label.style.top     = `${50}px`;
+    label.style.top     = `${40}px`;
     if (labelsShownOnce) label.style.opacity = 1;  // 若 45s 已到，保持可见
   }
 }
@@ -521,5 +521,6 @@ window.addEventListener('resize', mountAll);
 
 </body>
 </html>
+
 
 
